@@ -1,0 +1,42 @@
+# 🔐 Environment files
+/Backend/.env
+
+# Folders
+/Ignore/
+
+# Python virtual environments
+/Backend/venv/
+**/__pycache__/
+**/*.py[cod]
+*.pyc
+
+# Python build artifacts
+/Backend/build/
+/Backend/dist/
+/Backend/*.egg-info/
+/Backend/pip-wheel-metadata/
+
+# IDE/editor metadata
+.vscode/
+.idea/
+*.swp
+
+# 🗑 OS files
+.DS_Store
+Thumbs.db
+
+# Test & cache
+**/.pytest_cache/
+**/.mypy_cache/
+
+# Uvicorn, Fly.io, or local dev
+/Backend/*.log
+/Backend/*.pid
+/Backend/.fly/
+
+# NodeJS (if frontend exists here too)
+node_modules/
+dist/
+.env.local
+.env.production
+.env.development
