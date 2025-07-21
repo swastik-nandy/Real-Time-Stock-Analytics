@@ -7,10 +7,10 @@ from datetime import datetime, time
 from pathlib import Path
 from dotenv import load_dotenv
 
-from services.SyncRedis import initialize_redis_symbols, sync_symbols_to_redis
-from services.cleaner import run_cleanup
+from Backend.Utils.SyncRedis import initialize_redis_symbols, sync_symbols_to_redis
+from Backend.Utils.cleaner import run_cleanup
 
-# --------------------------- ENV SETUP ---------------------------
+# ----------------------------------------- ENV SETUP ----------------------------------------------------------
 
 if os.environ.get("ENV") != "fly":
     load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -80,19 +80,22 @@ async def time_based_trigger():
         current_hour = now.hour
         current_time = now.time()
 
-        # RUN CLEANUP IF NOT DONE TODAY 
+        # RUN CLEANUP IF NOT DONE TODAY ----------------------------------------------
+
         if current_hour in cleanup_hours and current_hour != last_cleanup_hour:
             print(f"\n🧹 Triggering cleanup at hour {current_hour}")
             await run_cleanup()
             last_cleanup_hour = current_hour
 
-        # LAUNCH FETCHER VIA SECURE HTTP TRIGGER
+        # LAUNCH FETCHER VIA SECURE HTTP TRIGGER ----------------------------------------
+
         if fetcher_start_time <= current_time < fetcher_end_time and not fetcher_running:
             print(f"\n🚀 Triggering fetcher remotely at {current_time}")
             await trigger_fetcher()
             fetcher_running = True
 
-        # RESET FETCHER FLAG
+        # RESET FETCHER FLAG --------------------------------------------
+
         if current_time >= fetcher_end_time and fetcher_running:
             print(f"\n🛑 Fetcher window ended at {current_time}")
             fetcher_running = False
