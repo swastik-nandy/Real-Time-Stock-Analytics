@@ -138,7 +138,7 @@ async def handle_trade_data(redis, data: dict):
     if tasks:
         await asyncio.gather(*tasks)
 
-# ------------------ STREAM LOOP ------------------
+# ------------------ STREAM LOOP --------------------
 
 async def stream_loop():
     global fetched_today
