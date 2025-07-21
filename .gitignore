@@ -1,4 +1,4 @@
-# 🔐 Environment files
+# Environment files
 /Backend/.env
 
 # Folders
@@ -21,18 +21,20 @@
 .idea/
 *.swp
 
-# 🗑 OS files
+# OS files
 .DS_Store
 Thumbs.db
 
 # Test & cache
 **/.pytest_cache/
 **/.mypy_cache/
+**/__pycache__/
 
 # Uvicorn, Fly.io, or local dev
 /Backend/*.log
 /Backend/*.pid
 /Backend/.fly/
+/tree.py
 
 # NodeJS (if frontend exists here too)
 node_modules/
