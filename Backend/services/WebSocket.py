@@ -5,30 +5,32 @@ import logging
 from datetime import datetime, timezone
 from typing import Set
 from pathlib import Path
-import sys
+import os
 import aioredis
+from dotenv import load_dotenv
 
-# Add 'backend' to path so we can import from app.core
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-from app.core.config import settings  # <-- centralized config
+# ----------------------------------------ENV HANDLING -----------------------------------------
 
-# -------- CONFIG --------
-FINNHUB_API_KEY = settings.finnhub_api_key
-REDIS_URL = settings.redis_url
+if os.environ.get("ENV") != "fly":
+    load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+
+FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY")
+REDIS_URL = os.environ.get("REDIS_URL")
 FINNHUB_WS_URL = f"wss://ws.finnhub.io?token={FINNHUB_API_KEY}"
 
 SYMBOLS_KEY = "stock:symbols"
 PRICE_PREFIX = "stock:price:"
 TRADE_PREFIX = "stock:trade:"
 
-# -------- Logging --------
+# ------------------------------------------ LOGGING -------------------------------------------
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("websocket-streamer")
 
 MAX_CONCURRENT_WRITES = 100
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_WRITES)
 
-# -------- Helpers --------
+# ----------------------------------------- HELPERS --------------------------------------------
 
 async def get_symbols(redis) -> Set[str]:
     try:
@@ -112,7 +114,7 @@ async def handle_trade_data(redis, data: dict):
     if tasks:
         await asyncio.gather(*tasks)
 
-# -------- Stream Loop --------
+# -------------------------------------- STREAM LOOP -------------------------------------------
 
 async def stream_loop():
     redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -150,6 +152,8 @@ async def stream_loop():
         logger.info(f"[WS] Reconnecting in {delay}s...")
         await asyncio.sleep(delay)
         delay = min(delay * 2, max_delay)
+
+# ------------------------------------ OPEN CLI -----------------------------------------------
 
 if __name__ == "__main__":
     asyncio.run(stream_loop())

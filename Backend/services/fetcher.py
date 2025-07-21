@@ -2,30 +2,26 @@ import os
 import asyncio
 import json
 import time as pytime
-from datetime import datetime, time
+from datetime import datetime
 import aioredis
 import asyncpg
 from pathlib import Path
-import sys
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request, HTTPException
+import uvicorn
 
-# -------- Import settings from config --------
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # adds backend/
-from app.core.config import settings
+# -----------------------------------------ENV SETUP -------------------------------------------------
 
-# -------- CONFIG --------
-REDIS_URL = settings.redis_url
-DATABASE_URL = settings.database_url
+if os.environ.get("ENV") != "fly":
+    load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+
+REDIS_URL = os.environ.get("REDIS_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+FETCH_TRIGGER_TOKEN = os.environ.get("FETCH_TRIGGER_TOKEN")  # 🔐 Secret token
 PRICE_KEY_PREFIX = "stock:price:"
 FETCH_INTERVAL = 10  # seconds
 
-# -------- TIME WINDOW --------
-START_UTC = time(13, 0)
-END_UTC = time(21, 0)
-
-# -------- UTILS --------
-
-def is_within_window(now: datetime) -> bool:
-    return START_UTC <= now.time() < END_UTC
+# -------------------------------------------UTILS ----------------------------------------------
 
 async def load_symbols(pg_pool):
     async with pg_pool.acquire() as conn:
@@ -64,30 +60,67 @@ async def fetch_and_store(redis, pg_pool, symbol_to_id):
         except Exception as e:
             print(f"[ERROR] Insert failed: {e}")
 
-# -------- MAIN LOOP --------
+# ------------------------------------SINGLE LOOP FETCHER --------------------------------------
 
-async def main():
-    print("🚀 Fetcher started")
+fetcher_running = False  # GLOBAL FLAG
+
+async def run_fetcher():
+    global fetcher_running
+    if fetcher_running:
+        print("⚠️ Fetcher already running, skipping re-launch.")
+        return
+
+    fetcher_running = True
+    print("🚀 Fetcher launched at", datetime.utcnow().isoformat())
+
     redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
     pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
     symbol_to_id = await load_symbols(pg_pool)
 
     while True:
         now = datetime.utcnow()
-
-        if now.time() >= END_UTC:
-            print(f"🛑 Fetcher exiting at {now.isoformat()} — window closed.")
-            break
-
-        if not is_within_window(now):
-            print(f"⏳ Not within write window yet ({now.time()} UTC). Sleeping...")
-            await asyncio.sleep(10)
+        if now.hour < 13:
+            print(f"⏳ Waiting for 13:00 UTC — currently {now.time().strftime('%H:%M:%S')} UTC")
+            await asyncio.sleep(1)
             continue
+
+        if now.hour >= 21:
+            print(f"🛑 Time exceeded 21:00 UTC — exiting fetcher at {now.isoformat()}")
+            break
 
         start = pytime.time()
         await fetch_and_store(redis, pg_pool, symbol_to_id)
         elapsed = pytime.time() - start
-        await asyncio.sleep(max(0, FETCH_INTERVAL - elapsed))
+
+        if elapsed < FETCH_INTERVAL:
+            await asyncio.sleep(FETCH_INTERVAL - elapsed)
+        else:
+            print(f"⚠️ Insert took {elapsed:.2f}s — skipping dynamic sleep")
+            await asyncio.sleep(FETCH_INTERVAL)
+
+    await redis.close()
+    await pg_pool.close()
+    fetcher_running = False  
+
+# --------------------------------------FASTAPI ENDPOINT -------------------------------
+
+app = FastAPI()
+
+@app.post("/start-fetcher")  
+async def start_fetcher(request: Request):
+    auth_header = request.headers.get("Authorization")
+    expected = f"Bearer {FETCH_TRIGGER_TOKEN}"
+
+    if auth_header != expected:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    if fetcher_running:
+        return {"status": "Fetcher already running", "timestamp": datetime.utcnow().isoformat()}
+    
+    asyncio.create_task(run_fetcher())
+    return {"status": "Fetcher started", "timestamp": datetime.utcnow().isoformat()}
+
+# -----------------------------------------ENTRYPOINT -----------------------------------
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run("services.fetcher:app", host="0.0.0.0", port=8080)

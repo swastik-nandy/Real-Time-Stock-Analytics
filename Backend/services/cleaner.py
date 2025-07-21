@@ -1,16 +1,27 @@
-# app/utils/cleaner.py
+# services/cleaner.py
 
 import asyncio
 from datetime import datetime
 import asyncpg
-from app.core.config import settings
+import os
+from dotenv import load_dotenv
+from pathlib import Path
 
-DATABASE_URL = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+# ---------------------------------------ENVIRONMENT -------------------------------------------
+
+if os.environ.get("ENV") != "fly":
+    load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL.startswith("postgresql+asyncpg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+
+
+# ------------------------------------ MAIN CLEANUP TASK --------------------------------------
 
 async def run_cleanup():
     now_utc = datetime.utcnow()
     hour = now_utc.hour
-
     print(f"[CLEANER] Triggered at UTC hour: {hour}")
 
     try:
@@ -32,7 +43,7 @@ async def run_cleanup():
                 await conn.execute("VACUUM FULL VERBOSE ANALYZE predicted_prices")
 
             else:
-                print(f"[CLEANER] Skipping: No task scheduled for this hour")
+                print("[CLEANER] Skipping: No task scheduled for this hour")
                 return
 
             duration = (datetime.utcnow() - start_time).total_seconds()
@@ -43,7 +54,7 @@ async def run_cleanup():
     except Exception as e:
         print(f"[ERROR] Cleanup failed: {e}")
 
+# ------------------------------------ OPEN CLI ENTRY ----------------------------------------
 
-# Optional: keep this so cleaner.py is still runnable standalone
 if __name__ == "__main__":
     asyncio.run(run_cleanup())
