@@ -11,6 +11,13 @@ from pathlib import Path
 from redis.asyncio import Redis
 from dotenv import load_dotenv
 
+# ------------------ BOOT CONFIRMATION ------------------
+
+print("✅ WebSocket.py launched successfully")  # visible in container logs
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("websocket-streamer")
+logger.info("[BOOT] ✅ WebSocket.py launched successfully")
+
 # ------------------ PATH & ENV ------------------
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))  # Add project root to PYTHONPATH
@@ -26,10 +33,7 @@ SYMBOLS_KEY = "stock:symbols"
 PRICE_PREFIX = "stock:price:"
 TRADE_PREFIX = "stock:trade:"
 
-# ------------------ LOGGING ------------------
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("websocket-streamer")
+# ------------------ ENV LOGGING ------------------
 
 logger.info(f"[ENV] FINNHUB_API_KEY is {'SET' if FINNHUB_API_KEY else 'MISSING'}")
 logger.info(f"[ENV] REDIS_URL is {REDIS_URL or 'MISSING'}")
@@ -154,7 +158,6 @@ async def stream_loop():
                 logger.info("[WS] Connected to Finnhub")
                 delay = 3  # RESET BACKOFF
 
-                # Initial symbol check
                 symbols = await get_symbols(redis)
                 if not symbols:
                     logger.warning("[WS] No symbols found in Redis. Sleeping 30s and retrying loop.")
@@ -175,7 +178,7 @@ async def stream_loop():
 
                         if current_time == time(0, 0) and fetched_today:
                             fetched_today = False
-                            logger.info("[\ud83c\udf19] Midnight reset — fetcher flag cleared")
+                            logger.info("[🌙] Midnight reset — fetcher flag cleared")
 
                         if not fetched_today and time(13, 0) <= current_time < time(21, 0):
                             logger.info("[⏱️] 13:00 UTC reached — triggering fetcher")
