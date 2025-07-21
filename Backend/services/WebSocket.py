@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-import aioredis
+from redis.asyncio import Redis
 from dotenv import load_dotenv
 
 # ------------------ PATH & ENV ------------------
@@ -131,7 +131,7 @@ async def handle_trade_data(redis, data: dict):
 async def stream_loop():
     global fetched_today
 
-    redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    redis = Redis.from_url(REDIS_URL, decode_responses=True)
     delay = 3
     max_delay = 60
 

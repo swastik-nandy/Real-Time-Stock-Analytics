@@ -5,7 +5,7 @@ import time as pytime
 from datetime import datetime, time
 from pathlib import Path
 
-import aioredis
+from redis.asyncio import Redis
 import asyncpg
 from dotenv import load_dotenv
 
@@ -72,7 +72,7 @@ async def run_fetcher():
     fetcher_running = True
     print("🚀 Fetcher launched at", datetime.utcnow().isoformat())
 
-    redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    redis = Redis.from_url(REDIS_URL, decode_responses=True)
     pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
     symbol_to_id = await load_symbols(pg_pool)
 
