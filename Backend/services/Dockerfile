@@ -9,4 +9,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "WebSocket.py"]
+CMD ["bash", "-c", "ls -al && python WebSocket.py"]
+
