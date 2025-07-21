@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY . /app
 
-# Optional: still keep update+clean in case you want to add things later
+# Optional : still keep update+clean in case you want to add things later
 RUN apt-get update && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir -r requirements.txt
