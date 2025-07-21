@@ -20,7 +20,7 @@ logger.info("[BOOT] ✅ WebSocket.py launched successfully")
 
 # ------------------ PATH & ENV ------------------
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # Add project root to PYTHONPATH
+sys.path.append(str(Path(__file__).resolve().parent)) # Add project root to PYTHONPATH
 
 if not os.environ.get("ENV"):
     load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
