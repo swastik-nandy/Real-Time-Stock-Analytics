@@ -31,6 +31,9 @@ TRADE_PREFIX = "stock:trade:"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("websocket-streamer")
 
+logger.info(f"[ENV] FINNHUB_API_KEY is {'SET' if FINNHUB_API_KEY else 'MISSING'}")
+logger.info(f"[ENV] REDIS_URL is {REDIS_URL or 'MISSING'}")
+
 MAX_CONCURRENT_WRITES = 100
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_WRITES)
 
@@ -47,7 +50,9 @@ fetched_today = False
 async def get_symbols(redis) -> Set[str]:
     try:
         raw = await redis.smembers(SYMBOLS_KEY)
-        return {s.decode() if isinstance(s, bytes) else s for s in raw}
+        symbols = {s.decode() if isinstance(s, bytes) else s for s in raw}
+        logger.info(f"[Redis] Loaded {len(symbols)} symbols")
+        return symbols
     except Exception as e:
         logger.error(f"[Redis] Failed to fetch symbols: {e}")
         return set()
@@ -73,13 +78,16 @@ async def unsubscribe(ws, symbols: Set[str], subscribed: Set[str]):
 async def manage_subscriptions(ws, redis, subscribed: Set[str]):
     while True:
         try:
+            logger.debug("[Sub] Checking for subscription updates...")
             current = await get_symbols(redis)
             to_add = current - subscribed
             to_remove = subscribed - current
 
             if to_add:
+                logger.info(f"[Sub] New symbols to subscribe: {to_add}")
                 await subscribe(ws, to_add, subscribed)
             if to_remove:
+                logger.info(f"[Sub] Symbols to unsubscribe: {to_remove}")
                 await unsubscribe(ws, to_remove, subscribed)
         except Exception as e:
             logger.error(f"[Sub] Subscription update failed: {e}")
@@ -132,20 +140,24 @@ async def stream_loop():
     global fetched_today
 
     redis = Redis.from_url(REDIS_URL, decode_responses=True)
+    logger.info("[Redis] Connected successfully")
+
     delay = 3
     max_delay = 60
 
     while True:
+        logger.info("[WS] Beginning main loop...")
         subscribed_symbols: Set[str] = set()
+
         try:
             async with websockets.connect(FINNHUB_WS_URL, ping_interval=20, ping_timeout=10) as ws:
                 logger.info("[WS] Connected to Finnhub")
                 delay = 3  # RESET BACKOFF
 
-                # Check Redis symbols before subscribing
+                # Initial symbol check
                 symbols = await get_symbols(redis)
                 if not symbols:
-                    logger.warning("[WS] No symbols found in Redis. Retrying in 30s...")
+                    logger.warning("[WS] No symbols found in Redis. Sleeping 30s and retrying loop.")
                     await asyncio.sleep(30)
                     continue
 
@@ -181,8 +193,9 @@ async def stream_loop():
                         break
                     except Exception as e:
                         logger.error(f"[WS] Message error: {e}")
+
         except Exception as e:
-            logger.error(f"[WS] Connection error: {e}")
+            logger.error(f"[WS] Connection error (outer loop): {e}")
 
         logger.info(f"[WS] Reconnecting in {delay}s...")
         await asyncio.sleep(delay)
@@ -191,4 +204,9 @@ async def stream_loop():
 # ------------------ ENTRY ------------------
 
 if __name__ == "__main__":
-    asyncio.run(stream_loop())
+    try:
+        logger.info("[MAIN] Starting WebSocket service...")
+        asyncio.run(stream_loop())
+        logger.warning("[MAIN] stream_loop() exited unexpectedly — should not happen.")
+    except Exception as e:
+        logger.exception(f"[FATAL] WebSocket crashed at top-level: {e}")
