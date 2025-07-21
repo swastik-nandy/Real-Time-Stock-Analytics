@@ -36,7 +36,7 @@ semaphore = asyncio.Semaphore(MAX_CONCURRENT_WRITES)
 
 # ------------------ FETCHER IMPORT ------------------
 
-from services.fetcher import run_fetcher
+from fetcher import run_fetcher
 
 # ------------------ FLAG ------------------
 
