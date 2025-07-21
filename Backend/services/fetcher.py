@@ -2,26 +2,25 @@ import os
 import asyncio
 import json
 import time as pytime
-from datetime import datetime
+from datetime import datetime, time
+from pathlib import Path
+
 import aioredis
 import asyncpg
-from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException
-import uvicorn
 
-# -----------------------------------------ENV SETUP -------------------------------------------------
+# ----------------------------------------- ENV SETUP -------------------------------------------------
 
-if os.environ.get("ENV") != "fly":
+if not os.environ.get("ENV"):
     load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 REDIS_URL = os.environ.get("REDIS_URL")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-FETCH_TRIGGER_TOKEN = os.environ.get("FETCH_TRIGGER_TOKEN")  # 🔐 Secret token
+
 PRICE_KEY_PREFIX = "stock:price:"
 FETCH_INTERVAL = 10  # seconds
 
-# -------------------------------------------UTILS ----------------------------------------------
+# ------------------------------------------- UTILS ----------------------------------------------------
 
 async def load_symbols(pg_pool):
     async with pg_pool.acquire() as conn:
@@ -41,7 +40,7 @@ async def fetch_and_store(redis, pg_pool, symbol_to_id):
             continue
         try:
             price = float(raw_price)
-            stock_id = symbol_to_id[symbol]
+            stock_id = symbol_to_id[symbol] 
             rows.append((stock_id, price, now))
         except Exception as e:
             print(f"[ERROR] Parse failed for {symbol}: {e}")
@@ -60,7 +59,7 @@ async def fetch_and_store(redis, pg_pool, symbol_to_id):
         except Exception as e:
             print(f"[ERROR] Insert failed: {e}")
 
-# ------------------------------------SINGLE LOOP FETCHER --------------------------------------
+# ------------------------------------ SINGLE LOOP FETCHER --------------------------------------
 
 fetcher_running = False  # GLOBAL FLAG
 
@@ -77,14 +76,19 @@ async def run_fetcher():
     pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
     symbol_to_id = await load_symbols(pg_pool)
 
+    start_time = time(13, 0)
+    end_time = time(21, 0)
+
     while True:
         now = datetime.utcnow()
-        if now.hour < 13:
+        current_time = now.time()
+
+        if current_time < start_time:
             print(f"⏳ Waiting for 13:00 UTC — currently {now.time().strftime('%H:%M:%S')} UTC")
             await asyncio.sleep(1)
             continue
 
-        if now.hour >= 21:
+        if current_time >= end_time:
             print(f"🛑 Time exceeded 21:00 UTC — exiting fetcher at {now.isoformat()}")
             break
 
@@ -100,27 +104,9 @@ async def run_fetcher():
 
     await redis.close()
     await pg_pool.close()
-    fetcher_running = False  
+    fetcher_running = False
 
-# --------------------------------------FASTAPI ENDPOINT -------------------------------
-
-app = FastAPI()
-
-@app.post("/start-fetcher")  
-async def start_fetcher(request: Request):
-    auth_header = request.headers.get("Authorization")
-    expected = f"Bearer {FETCH_TRIGGER_TOKEN}"
-
-    if auth_header != expected:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-
-    if fetcher_running:
-        return {"status": "Fetcher already running", "timestamp": datetime.utcnow().isoformat()}
-    
-    asyncio.create_task(run_fetcher())
-    return {"status": "Fetcher started", "timestamp": datetime.utcnow().isoformat()}
-
-# -----------------------------------------ENTRYPOINT -----------------------------------
+# ------------------------------------------ ENTRYPOINT ------------------------------------------
 
 if __name__ == "__main__":
-    uvicorn.run("services.fetcher:app", host="0.0.0.0", port=8080)
+    asyncio.run(run_fetcher())

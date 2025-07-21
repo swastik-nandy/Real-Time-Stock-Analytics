@@ -2,16 +2,20 @@ import asyncio
 import websockets
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time
 from typing import Set
-from pathlib import Path
 import os
+import sys
+from pathlib import Path
+
 import aioredis
 from dotenv import load_dotenv
 
-# ----------------------------------------ENV HANDLING -----------------------------------------
+# ------------------ PATH & ENV ------------------
 
-if os.environ.get("ENV") != "fly":
+sys.path.append(str(Path(__file__).resolve().parents[1]))  # Add project root to PYTHONPATH
+
+if not os.environ.get("ENV"):
     load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY")
@@ -22,7 +26,7 @@ SYMBOLS_KEY = "stock:symbols"
 PRICE_PREFIX = "stock:price:"
 TRADE_PREFIX = "stock:trade:"
 
-# ------------------------------------------ LOGGING -------------------------------------------
+# ------------------ LOGGING ------------------
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("websocket-streamer")
@@ -30,7 +34,15 @@ logger = logging.getLogger("websocket-streamer")
 MAX_CONCURRENT_WRITES = 100
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_WRITES)
 
-# ----------------------------------------- HELPERS --------------------------------------------
+# ------------------ FETCHER IMPORT ------------------
+
+from services.fetcher import run_fetcher
+
+# ------------------ FLAG ------------------
+
+fetched_today = False
+
+# ------------------ HELPERS ------------------
 
 async def get_symbols(redis) -> Set[str]:
     try:
@@ -114,9 +126,11 @@ async def handle_trade_data(redis, data: dict):
     if tasks:
         await asyncio.gather(*tasks)
 
-# -------------------------------------- STREAM LOOP -------------------------------------------
+# ------------------ STREAM LOOP ------------------
 
 async def stream_loop():
+    global fetched_today
+
     redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
     delay = 3
     max_delay = 60
@@ -126,11 +140,9 @@ async def stream_loop():
         try:
             async with websockets.connect(FINNHUB_WS_URL, ping_interval=20, ping_timeout=10) as ws:
                 logger.info("[WS] Connected to Finnhub")
-                delay = 3  # reset backoff
+                delay = 3  # RESET BACKOFF
 
-                symbols = await get_symbols(redis)
-                await subscribe(ws, symbols, subscribed_symbols)
-
+                await subscribe(ws, await get_symbols(redis), subscribed_symbols)
                 asyncio.create_task(manage_subscriptions(ws, redis, subscribed_symbols))
 
                 while True:
@@ -138,6 +150,22 @@ async def stream_loop():
                         msg = await asyncio.wait_for(ws.recv(), timeout=30)
                         data = json.loads(msg)
                         await handle_trade_data(redis, data)
+
+                        # ---------- TIME CHECK ----------
+                        now = datetime.utcnow()
+                        current_time = now.time()
+
+                        # Reset flag at 00:00 UTC
+                        if current_time == time(0, 0) and fetched_today:
+                            fetched_today = False
+                            logger.info("[🌙] Midnight reset — fetcher flag cleared")
+
+                        # Trigger fetcher once per day at or after 13:00 UTC
+                        if not fetched_today and time(13, 0) <= current_time < time(21, 0):
+                            logger.info("[⏱️] 13:00 UTC reached — triggering fetcher")
+                            asyncio.create_task(run_fetcher())
+                            fetched_today = True
+
                     except asyncio.TimeoutError:
                         logger.warning("[WS] Timeout — sending ping")
                         await ws.ping()
@@ -153,7 +181,7 @@ async def stream_loop():
         await asyncio.sleep(delay)
         delay = min(delay * 2, max_delay)
 
-# ------------------------------------ OPEN CLI -----------------------------------------------
+# ------------------ ENTRY ------------------
 
 if __name__ == "__main__":
     asyncio.run(stream_loop())
