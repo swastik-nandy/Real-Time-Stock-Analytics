@@ -59,7 +59,7 @@ async def fetch_and_store(redis, pg_pool, symbol_to_id):
         except Exception as e:
             print(f"[ERROR] Insert failed: {e}")
 
-# ------------------------------------ SINGLE LOOP FETCHER --------------------------------------
+# ------------------------------------ SINGLE LOOP FETCHER -------------------------------------
 
 fetcher_running = False  # GLOBAL FLAG
 
