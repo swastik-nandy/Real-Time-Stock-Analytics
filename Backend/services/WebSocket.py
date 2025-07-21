@@ -170,16 +170,13 @@ async def stream_loop():
                         data = json.loads(msg)
                         await handle_trade_data(redis, data)
 
-                        # ---------- TIME CHECK ----------
                         now = datetime.utcnow()
                         current_time = now.time()
 
-                        # Reset flag at 00:00 UTC
                         if current_time == time(0, 0) and fetched_today:
                             fetched_today = False
-                            logger.info("[🌙] Midnight reset — fetcher flag cleared")
+                            logger.info("[\ud83c\udf19] Midnight reset — fetcher flag cleared")
 
-                        # Trigger fetcher once per day at or after 13:00 UTC
                         if not fetched_today and time(13, 0) <= current_time < time(21, 0):
                             logger.info("[⏱️] 13:00 UTC reached — triggering fetcher")
                             asyncio.create_task(run_fetcher())
@@ -203,10 +200,18 @@ async def stream_loop():
 
 # ------------------ ENTRY ------------------
 
+async def main():
+    while True:
+        try:
+            await stream_loop()
+        except Exception as e:
+            logger.exception(f"[MAIN LOOP] stream_loop crashed unexpectedly: {e}")
+        logger.info("[MAIN LOOP] stream_loop exited — retrying in 10s")
+        await asyncio.sleep(10)
+
 if __name__ == "__main__":
     try:
         logger.info("[MAIN] Starting WebSocket service...")
-        asyncio.run(stream_loop())
-        logger.warning("[MAIN] stream_loop() exited unexpectedly — should not happen.")
+        asyncio.run(main())
     except Exception as e:
         logger.exception(f"[FATAL] WebSocket crashed at top-level: {e}")
