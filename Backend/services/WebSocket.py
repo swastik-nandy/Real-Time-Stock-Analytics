@@ -142,7 +142,14 @@ async def stream_loop():
                 logger.info("[WS] Connected to Finnhub")
                 delay = 3  # RESET BACKOFF
 
-                await subscribe(ws, await get_symbols(redis), subscribed_symbols)
+                # Check Redis symbols before subscribing
+                symbols = await get_symbols(redis)
+                if not symbols:
+                    logger.warning("[WS] No symbols found in Redis. Retrying in 30s...")
+                    await asyncio.sleep(30)
+                    continue
+
+                await subscribe(ws, symbols, subscribed_symbols)
                 asyncio.create_task(manage_subscriptions(ws, redis, subscribed_symbols))
 
                 while True:
