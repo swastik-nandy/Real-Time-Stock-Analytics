@@ -2,12 +2,20 @@ import os
 import asyncio
 import json
 import time as pytime
+import logging
 from datetime import datetime, time
 from pathlib import Path
 
 from redis.asyncio import Redis
 import asyncpg
 from dotenv import load_dotenv
+
+# -------------------- LOGGING SETUP ---------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("fetcher")
 
 # -------------------- ENV SETUP ---------------------
 if not os.environ.get("ENV"):
@@ -22,8 +30,13 @@ FETCH_INTERVAL = 10  # seconds
 # -------------------- FETCH + WRITE ---------------------
 async def fetch_and_store(redis, pg_pool):
     now = datetime.utcnow()
-    symbols = await redis.smembers(SYMBOL_SET_KEY)
-    symbols = {s.decode() if isinstance(s, bytes) else s for s in symbols}
+    try:
+        symbols = await redis.smembers(SYMBOL_SET_KEY)
+        symbols = {s.decode() if isinstance(s, bytes) else s for s in symbols}
+        logger.info(f"Fetched {len(symbols)} symbols from Redis")
+    except Exception as e:
+        logger.error(f"Failed to fetch symbols from Redis: {e}")
+        return
 
     pipe = redis.pipeline()
     for symbol in symbols:
@@ -33,6 +46,7 @@ async def fetch_and_store(redis, pg_pool):
     rows = []
     for symbol, raw_price in zip(symbols, results):
         if raw_price is None:
+            logger.debug(f"No price found in Redis for {symbol}, skipping.")
             continue
         try:
             price = float(raw_price)
@@ -40,8 +54,10 @@ async def fetch_and_store(redis, pg_pool):
                 stock_id = await conn.fetchval("SELECT id FROM stocks WHERE symbol = $1", symbol)
                 if stock_id:
                     rows.append((stock_id, price, now))
+                else:
+                    logger.warning(f"Stock symbol {symbol} not found in DB, skipping.")
         except Exception as e:
-            print(f"[ERROR] Problem with {symbol}: {e}")
+            logger.error(f"[ERROR] Problem with {symbol}: {e}")
 
     if rows:
         try:
@@ -53,13 +69,15 @@ async def fetch_and_store(redis, pg_pool):
                     """,
                     rows
                 )
-            print(f"[✅] Inserted {len(rows)} rows at {now.isoformat()}")
+            logger.info(f"✅ Inserted {len(rows)} rows at {now.isoformat()}")
         except Exception as e:
-            print(f"[ERROR] Insert failed: {e}")
+            logger.error(f"[ERROR] Insert failed: {e}")
+    else:
+        logger.info("No rows to insert in this cycle.")
 
 # -------------------- MAIN LOOP ---------------------
 async def run_fetcher():
-    print("🚀 Fetcher launched at", datetime.utcnow().isoformat())
+    logger.info(f"🚀 Fetcher launched at {datetime.utcnow().isoformat()}")
 
     redis = Redis.from_url(REDIS_URL, decode_responses=True)
     pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
@@ -70,10 +88,11 @@ async def run_fetcher():
     while True:
         now = datetime.utcnow()
         if now.time() < start_time:
+            logger.debug("⏳ Waiting for fetch window to open...")
             await asyncio.sleep(1)
             continue
         if now.time() >= end_time:
-            print(f"🛑 Fetch window closed at {now.time()}")
+            logger.info(f"🛑 Fetch window closed at {now.time()}")
             break
 
         start = pytime.time()
@@ -83,8 +102,9 @@ async def run_fetcher():
         if elapsed < FETCH_INTERVAL:
             await asyncio.sleep(FETCH_INTERVAL - elapsed)
         else:
-            print(f"⚠️ Took {elapsed:.2f}s — skipping dynamic sleep")
+            logger.warning(f"⚠️ Took {elapsed:.2f}s — skipping dynamic sleep")
             await asyncio.sleep(FETCH_INTERVAL)
 
     await redis.close()
     await pg_pool.close()
+    logger.info("Fetcher shutdown complete.")
