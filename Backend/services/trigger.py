@@ -1,7 +1,7 @@
 import asyncio
 import os
 import asyncpg
-import aioredis
+from redis.asyncio import Redis
 from datetime import datetime, time
 from pathlib import Path
 from dotenv import load_dotenv
@@ -105,7 +105,8 @@ async def time_based_trigger():
 
 async def main():
     print("🚀 Trigger Controller Started")
-    redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    redis = Redis.from_url(REDIS_URL, decode_responses=True)
+
     await redis.ping()
     print("[Redis] Connected")
 
