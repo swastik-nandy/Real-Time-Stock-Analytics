@@ -63,10 +63,10 @@ async def sync_symbols_to_redis():
 
         if to_add:
             await redis.sadd("stock:symbols", *to_add)
-            print(f"➕ Added {len(to_add)} new symbols.")
+            print(f" Added {len(to_add)} new symbols.")
         if to_remove:
             await redis.srem("stock:symbols", *to_remove)
-            print(f"➖ Removed {len(to_remove)} symbols.")
+            print(f" Removed {len(to_remove)} symbols.")
         if not to_add and not to_remove:
             print("✅ Redis already in sync.")
     except Exception as e:
