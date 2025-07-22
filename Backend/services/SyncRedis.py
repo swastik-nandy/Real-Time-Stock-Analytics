@@ -3,7 +3,7 @@
 import os
 from dotenv import load_dotenv
 from pathlib import Path
-import aioredis
+from redis.asyncio import Redis
 import asyncpg
 from sqlalchemy import select
 from datetime import datetime
@@ -29,7 +29,7 @@ async def fetch_symbols():
 # ----------------------------------- INITIAL POPULATION -------------------------------------
 
 async def initialize_redis_symbols():
-    redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    redis = Redis.from_url(REDIS_URL, decode_responses=True)
     symbols = await fetch_symbols()
 
     if not symbols:
@@ -51,7 +51,8 @@ async def initialize_redis_symbols():
 
 
 async def sync_symbols_to_redis():
-    redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    redis = Redis.from_url(REDIS_URL, decode_responses=True)
+
     current_symbols = set(await fetch_symbols())
 
     try:
