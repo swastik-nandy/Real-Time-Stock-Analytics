@@ -6,3 +6,5 @@ python-dotenv==1.1.1
 SQLAlchemy==2.0.41
 websockets==11.0.3
 uvicorn[standard]==0.29.0
+psutil
+
