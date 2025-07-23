@@ -82,7 +82,7 @@ async def run_fetcher():
     redis = Redis.from_url(REDIS_URL, decode_responses=True)
     pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
 
-    start_time = time(13, 0)
+    start_time = time(4, 36)
     end_time = time(21, 0)
 
     while True:
