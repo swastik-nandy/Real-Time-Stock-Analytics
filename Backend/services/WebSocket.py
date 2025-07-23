@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from redis.asyncio import Redis
 from dotenv import load_dotenv
+import psutil
 
 # ------------------ SETUP ------------------
 
@@ -27,29 +28,57 @@ SYMBOLS_KEY = "stock:symbols"
 PRICE_PREFIX = "stock:price:"
 TRADE_PREFIX = "stock:trade:"
 
-MAX_CONCURRENT_WRITES = 200  # Optional cap
-semaphore = asyncio.Semaphore(MAX_CONCURRENT_WRITES)
+# ------------------ REDIS QUEUE ------------------
 
-# ------------------ REDIS KEY UPDATE ------------------
+WRITE_QUEUE = asyncio.Queue(maxsize=1000)
+MICRO_BATCH_SIZE = 50
+FLUSH_INTERVAL = 0.01  # 10ms max wait before forcing a flush
 
-async def write_trade_to_redis(redis: Redis, symbol: str, price: float, trade_info: dict):
-    async with semaphore:
+# ------------------ REDIS WRITER ------------------
+
+async def redis_writer(redis: Redis):
+    while True:
+        batch = []
+
         try:
-            price_key = f"{PRICE_PREFIX}{symbol}"
-            trade_key = f"{TRADE_PREFIX}{symbol}"
-            await redis.set(price_key, price)
-            await redis.setex(trade_key, 3600, json.dumps(trade_info))
-            logger.info(f"[Redis] {symbol} @ {price} - Updated")
+            # Wait for first item
+            item = await WRITE_QUEUE.get()
+            batch.append(item)
+
+            # Try to get more items up to batch size without blocking
+            for _ in range(MICRO_BATCH_SIZE - 1):
+                item = WRITE_QUEUE.get_nowait()
+                batch.append(item)
+
+        except asyncio.QueueEmpty:
+            pass
+
+        if not batch:
+            continue
+
+        try:
+            pipe = redis.pipeline()
+            for symbol, price, trade_info in batch:
+                pipe.set(f"{PRICE_PREFIX}{symbol}", price)
+                pipe.setex(f"{TRADE_PREFIX}{symbol}", 3600, json.dumps(trade_info))
+            await pipe.execute()
         except Exception as e:
-            logger.error(f"[Redis] Failed {symbol}: {e}")
+            logger.error(f"[Redis] Pipeline write failed: {e}")
+        finally:
+            for _ in batch:
+                WRITE_QUEUE.task_done()
+
+        # Tiny sleep if underloaded to avoid tight CPU loop
+        await asyncio.sleep(FLUSH_INTERVAL if len(batch) < MICRO_BATCH_SIZE else 0)
 
 # ------------------ TRADE HANDLER ------------------
 
-async def handle_trade_data(redis: Redis, message: dict):
+async def handle_trade_data(message: dict):
     if message.get("type") != "trade":
         return
 
     now = datetime.now(timezone.utc).isoformat()
+
     for trade in message.get("data", []):
         symbol = trade.get("s")
         price = trade.get("p")
@@ -66,20 +95,12 @@ async def handle_trade_data(redis: Redis, message: dict):
             "updated_at": now
         }
 
-        # Fire-and-forget: no await here; Redis write begins in parallel
-        asyncio.create_task(write_trade_to_redis(redis, symbol, price, trade_info))
-
-# ------------------ SUBSCRIPTION ------------------
-
-async def subscribe_symbols(ws, symbols: Set[str]):
-    for symbol in symbols:
         try:
-            await ws.send(json.dumps({"type": "subscribe", "symbol": symbol}))
-            logger.info(f"[WS] Subscribed: {symbol}")
-        except Exception as e:
-            logger.warning(f"[WS] Failed to subscribe {symbol}: {e}")
+            WRITE_QUEUE.put_nowait((symbol, price, trade_info))
+        except asyncio.QueueFull:
+            logger.warning(f"[Queue] Full. Skipped trade for {symbol}")
 
-# ------------------ MAIN STREAM ------------------
+# ------------------ SYMBOL UTILS ------------------
 
 async def get_symbols(redis: Redis) -> Set[str]:
     try:
@@ -89,9 +110,29 @@ async def get_symbols(redis: Redis) -> Set[str]:
         logger.error(f"[Redis] Symbol fetch failed: {e}")
         return set()
 
+async def subscribe_symbols(ws, symbols: Set[str]):
+    for symbol in symbols:
+        try:
+            await ws.send(json.dumps({"type": "subscribe", "symbol": symbol}))
+        except Exception as e:
+            logger.warning(f"[WS] Failed to subscribe {symbol}: {e}")
+
+# ------------------ MEMORY MONITOR ------------------
+
+async def memory_monitor():
+    while True:
+        mem = psutil.Process(os.getpid()).memory_info().rss / (1024 ** 2)
+        logger.info(f"[MEMORY] RAM: {mem:.2f} MB | Queue: {WRITE_QUEUE.qsize()}")
+        await asyncio.sleep(1800)
+
+# ------------------ MAIN LOOP ------------------
+
 async def stream_trades():
     redis = Redis.from_url(REDIS_URL, decode_responses=True)
-    logger.info("[Redis] Connected")
+    logger.info("[Redis] Connected ✅")
+
+    asyncio.create_task(redis_writer(redis))
+    asyncio.create_task(memory_monitor())
 
     reconnect_delay = 3
     max_delay = 60
@@ -101,11 +142,11 @@ async def stream_trades():
             logger.info("[WS] Connecting to Finnhub...")
             async with websockets.connect(FINNHUB_WS_URL, ping_interval=20, ping_timeout=10) as ws:
                 logger.info("[WS] Connected ✅")
-                reconnect_delay = 3  # reset backoff
+                reconnect_delay = 3
 
                 symbols = await get_symbols(redis)
                 if not symbols:
-                    logger.warning("[WS] No symbols found in Redis — retrying in 30s.")
+                    logger.warning("[WS] No symbols found — retrying in 30s")
                     await asyncio.sleep(30)
                     continue
 
@@ -114,7 +155,7 @@ async def stream_trades():
                 while True:
                     msg = await asyncio.wait_for(ws.recv(), timeout=30)
                     data = json.loads(msg)
-                    asyncio.create_task(handle_trade_data(redis, data))
+                    await handle_trade_data(data)
 
         except asyncio.TimeoutError:
             logger.warning("[WS] Timeout — sending ping...")
@@ -131,7 +172,7 @@ async def stream_trades():
 
 if __name__ == "__main__":
     try:
-        logger.info("🚀 Starting ultra-low-latency WebSocket stream...")
+        logger.info("🚀 Starting micro-batch WebSocket streamer...")
         asyncio.run(stream_trades())
     except Exception as e:
         logger.exception(f"[FATAL] WebSocket crashed: {e}")
