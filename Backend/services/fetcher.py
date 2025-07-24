@@ -23,13 +23,12 @@ if not os.environ.get("ENV"):
 
 REDIS_URL = os.environ.get("REDIS_URL")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-PRICE_KEY_PREFIX = "stock:price:"
+TRADE_KEY_PREFIX = "stock:trade:"
 SYMBOL_SET_KEY = "stock:symbols"
 FETCH_INTERVAL = 10  # seconds
 
 # -------------------- FETCH + WRITE ---------------------
 async def fetch_and_store(redis, pg_pool):
-    now = datetime.utcnow()
     try:
         symbols = await redis.smembers(SYMBOL_SET_KEY)
         symbols = {s.decode() if isinstance(s, bytes) else s for s in symbols}
@@ -40,20 +39,24 @@ async def fetch_and_store(redis, pg_pool):
 
     pipe = redis.pipeline()
     for symbol in symbols:
-        pipe.get(f"{PRICE_KEY_PREFIX}{symbol}")
+        pipe.get(f"{TRADE_KEY_PREFIX}{symbol}")  # Pull full trade info
     results = await pipe.execute()
 
     rows = []
-    for symbol, raw_price in zip(symbols, results):
-        if raw_price is None:
-            logger.debug(f"No price found in Redis for {symbol}, skipping.")
+    for symbol, raw_trade in zip(symbols, results):
+        if raw_trade is None:
+            logger.debug(f"No trade data found in Redis for {symbol}, skipping.")
             continue
         try:
-            price = float(raw_price)
+            trade_info = json.loads(raw_trade)
+            price = float(trade_info["price"])
+            timestamp_ms = trade_info["timestamp"]
+            trade_time = datetime.utcfromtimestamp(timestamp_ms / 1000.0)
+
             async with pg_pool.acquire() as conn:
                 stock_id = await conn.fetchval("SELECT id FROM stocks WHERE symbol = $1", symbol)
                 if stock_id:
-                    rows.append((stock_id, price, now))
+                    rows.append((stock_id, price, trade_time))
                 else:
                     logger.warning(f"Stock symbol {symbol} not found in DB, skipping.")
         except Exception as e:
@@ -64,12 +67,12 @@ async def fetch_and_store(redis, pg_pool):
             async with pg_pool.acquire() as conn:
                 await conn.executemany(
                     """
-                    INSERT INTO stock_price_history (stock_id, price, last_updated)
+                    INSERT INTO stock_price_history (stock_id, price, trade_time_stamp)
                     VALUES ($1, $2, $3)
                     """,
                     rows
                 )
-            logger.info(f"✅ Inserted {len(rows)} rows at {now.isoformat()}")
+            logger.info(f"✅ Inserted {len(rows)} rows with real trade timestamps")
         except Exception as e:
             logger.error(f"[ERROR] Insert failed: {e}")
     else:
@@ -82,8 +85,8 @@ async def run_fetcher():
     redis = Redis.from_url(REDIS_URL, decode_responses=True)
     pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
 
-    start_time = time(4, 36)
-    end_time = time(21, 0)
+    start_time = time(0, 32)
+    end_time = time(23, 59, 50)
 
     while True:
         now = datetime.utcnow()

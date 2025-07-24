@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.api.routes import router as api_router
 from app.db.redis_client import init_redis, close_redis
-from app.utils.SyncRedis import initialize_redis_symbols
+from Backend.Utils.SyncRedis import initialize_redis_symbols
 
 app = FastAPI()
 

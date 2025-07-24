@@ -59,9 +59,9 @@ async def time_based_trigger():
         now = datetime.utcnow()
         current_time = now.time()
 
-        # ------------------- CLEANUP stock_price_history (12:00–13:00 UTC) -------------------
+        # ------------------- CLEANUP stock_price_history -------------------
 
-        if time(12, 0) <= current_time < time(13, 0) and not cleanup_stock_done:
+        if time(0, 5) <= current_time < time(0, 30) and not cleanup_stock_done:
             async with pg_pool.acquire() as conn:
                 not_empty = await table_not_empty(conn, "stock_price_history")
                 if not_empty:
@@ -71,7 +71,7 @@ async def time_based_trigger():
                     print("✅ stock_price_history already empty — skipping cleanup")
             cleanup_stock_done = True
 
-        if current_time >= time(13, 0):
+        if current_time >= time(0, 30):
             cleanup_stock_done = False  # Reset flag after window ends
 
         # ------------------- CLEANUP predicted_prices (exactly at 23:00 UTC) -------------------
@@ -89,14 +89,14 @@ async def time_based_trigger():
         if current_time < time(23, 0):
             cleanup_predicted_done = False  # Reset flag before 23:00 window
 
-        # ------------------- FETCHER KICK (13:00–21:00 UTC) -------------------
+        # ------------------- FETCHER KICK  -------------------
 
-        if time(4, 36) <= current_time < time(21, 0) and not fetcher_running:
+        if time(0, 32) <= current_time <= time(23, 59, 50) and not fetcher_running:
             print(f"\n🚀 Starting fetcher at {current_time}")
             asyncio.create_task(run_fetcher())
             fetcher_running = True
 
-        if current_time >= time(21, 0):
+        if current_time >= time(23, 59, 50):
             fetcher_running = False  # Reset flag after window
 
         await asyncio.sleep(30)

@@ -39,8 +39,8 @@ async def run_cleanup():
         async with pg_pool.acquire() as conn:
             start = datetime.utcnow()
 
-            # --- stock_price_history: Between 12:00 - 13:00 UTC ---
-            if time(12, 0) <= current_time < time(13, 0):
+            # --- stock_price_history 
+            if time(0, 5) <= current_time <= time(0, 30):
                 if await table_not_empty(conn, "stock_price_history"):
                     print("🧹 Cleaning stock_price_history")
                     await conn.execute("TRUNCATE stock_price_history RESTART IDENTITY")

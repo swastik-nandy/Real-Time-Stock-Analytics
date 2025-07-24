@@ -3,6 +3,7 @@
 
 # Folders
 /Ignore/
+/Analytics/
 
 # Python virtual environments
 /Backend/venv/
@@ -29,12 +30,14 @@ Thumbs.db
 **/.pytest_cache/
 **/.mypy_cache/
 **/__pycache__/
+/Analytics/*
 
 # Uvicorn, Fly.io, or local dev
 /Backend/*.log
 /Backend/*.pid
 /Backend/.fly/
 /tree.py
+/Analytics/
 
 # NodeJS (if frontend exists here too)
 node_modules/
