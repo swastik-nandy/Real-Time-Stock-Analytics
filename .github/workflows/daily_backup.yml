@@ -1,0 +1,44 @@
+name: Daily Stock Price History Backup
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Every day at 00:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write  # 🔥 Required to allow git push
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - name: Checkout backups branch
+        uses: actions/checkout@v3
+        with:
+          ref: backups
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10.13'  # ✅ Fix version bug
+          architecture: 'x64'        # ✅ Force architecture
+
+      - name: Install dependencies
+        run: pip install asyncpg pandas
+
+      - name: Run export script
+        run: python .github/scripts/export_stock_history.py
+
+      - name: Commit and push CSV
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add stock_price_history.csv
+          git commit -m "📊 Daily backup: $(date -u +'%Y-%m-%d')" || echo "No changes to commit"
+          git push https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }} HEAD:backups --force
