@@ -65,9 +65,9 @@ async def time_based_trigger():
         current_time = now.time()
         today = now.date()
 
-#--------------------BACKUP (16:24 - 17:40 UTC, once/day)--------------------
+#--------------------BACKUP (0:00)--------------------
 
-        if time(16, 24) <= current_time < time(17, 50):
+        if time(0, 0) <= current_time < time(0, 5):
             if last_backup_day != today:
                 print("✅ Running backup.py for daily export...")
                 try:
