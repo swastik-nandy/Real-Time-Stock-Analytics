@@ -19,7 +19,7 @@ CSV_PATH = GIT_REPO_DIR / "stock_price_history.csv"
 BRANCH_NAME = "backups"
 COMMIT_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-REPO = os.environ.get("GITHUB_REPO")  # e.g., "username/repo"
+REPO = os.environ.get("GITHUB_REPO")  # e.g., "swastik-nandy/Real-Time-Stock-Analytics"
 
 # -------------------- EXPORT FUNCTION --------------------
 
@@ -48,29 +48,25 @@ def commit_and_push():
     try:
         os.chdir(GIT_REPO_DIR)
 
-        # Ensure we are in a git repo
-        try:
-            subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], check=True)
-        except subprocess.CalledProcessError:
-            print("❌ Not a Git repo. Skipping backup push.")
-            return
+        # Check if inside a git repo
+        result = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True)
+        if result.returncode != 0:
+            print("⚠️ Not a Git repo. Initializing a fresh repo...")
+            subprocess.run(["git", "init"], check=True)
+            subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
+            subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
+            subprocess.run(["git", "remote", "add", "origin", f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git"], check=True)
 
-        # Try checking out the branch; create it if missing
+        # Checkout or create backups branch
         result = subprocess.run(["git", "checkout", BRANCH_NAME])
         if result.returncode != 0:
             print(f"⚠️ Branch '{BRANCH_NAME}' not found. Creating it...")
             subprocess.run(["git", "checkout", "-b", BRANCH_NAME], check=True)
 
         subprocess.run(["git", "pull", "origin", BRANCH_NAME], check=False)
-
         subprocess.run(["git", "add", str(CSV_PATH)], check=True)
         subprocess.run(["git", "commit", "-m", f"📊 Daily backup: {COMMIT_TIME}"], check=False)
-
-        subprocess.run([
-            "git", "push",
-            f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git",
-            f"HEAD:{BRANCH_NAME}"
-        ], check=True)
+        subprocess.run(["git", "push", f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git", f"HEAD:{BRANCH_NAME}"], check=True)
 
         print("✅ Backup pushed to GitHub.")
 
