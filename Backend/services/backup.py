@@ -18,8 +18,10 @@ GIT_REPO_DIR = Path(__file__).resolve().parents[1]  # repo root
 CSV_PATH = GIT_REPO_DIR / "stock_price_history.csv"
 BRANCH_NAME = "backups"
 COMMIT_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-REPO = os.environ.get("GITHUB_REPO")  # e.g., "swastik-nandy/Real-Time-Stock-Analytics"
+
+# 🔐 Sanitize environment variables
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
+REPO = os.environ.get("GITHUB_REPO", "").strip()  # e.g., "swastik-nandy/Real-Time-Stock-Analytics"
 
 # -------------------- EXPORT FUNCTION --------------------
 
@@ -55,7 +57,8 @@ def commit_and_push():
             subprocess.run(["git", "init"], check=True)
             subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
             subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
-            subprocess.run(["git", "remote", "add", "origin", f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git"], check=True)
+            subprocess.run(["git", "remote", "add", "origin",
+                            f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git"], check=True)
 
         # Checkout or create backups branch
         result = subprocess.run(["git", "checkout", BRANCH_NAME])
@@ -66,7 +69,10 @@ def commit_and_push():
         subprocess.run(["git", "pull", "origin", BRANCH_NAME], check=False)
         subprocess.run(["git", "add", str(CSV_PATH)], check=True)
         subprocess.run(["git", "commit", "-m", f"📊 Daily backup: {COMMIT_TIME}"], check=False)
-        subprocess.run(["git", "push", f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git", f"HEAD:{BRANCH_NAME}"], check=True)
+
+        push_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git"
+        print(f"🚀 Git pushing to: {push_url} on branch: {BRANCH_NAME}")
+        subprocess.run(["git", "push", push_url, f"HEAD:{BRANCH_NAME}"], check=True)
 
         print("✅ Backup pushed to GitHub.")
 
