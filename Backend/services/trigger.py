@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from SyncRedis import initialize_redis_symbols, sync_symbols_to_redis
 from cleaner import run_cleanup
 from fetcher import run_fetcher
+import sys
 
 #--------------------ENV--------------------
 
