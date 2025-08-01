@@ -4,8 +4,11 @@ WORKDIR /app
 
 COPY . .
 
-# Install build tools and clean up after
-RUN apt-get update && apt-get install -y gcc build-essential \
+# Install build tools, git, and clean up after
+RUN apt-get update && apt-get install -y \
+    git \
+    gcc \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
