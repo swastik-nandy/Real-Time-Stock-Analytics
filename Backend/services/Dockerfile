@@ -2,7 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY . .
+# Copy requirements first for layer caching
+COPY requirements.txt .
 
 # Install build tools, git, and clean up after
 RUN apt-get update && apt-get install -y \
@@ -13,6 +14,15 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy project files AFTER deps installed
+COPY . .
+
+# Set up Git and ensure backups branch is initialized
+RUN git config --global user.email "actions@github.com" && \
+    git config --global user.name "github-actions" && \
+    git fetch origin backups || true && \
+    git checkout -B backups origin/backups || git checkout -b backups
 
 # Environment setup
 ENV PYTHONUNBUFFERED=1

@@ -66,7 +66,7 @@ async def time_based_trigger():
 
 #--------------------BACKUP (00:00 UTC)-----------------------------------
 
-        if time(16, 24) <= current_time < time(16, 34) and not backup_done:
+        if time(16, 24) <= current_time < time(16, 38) and not backup_done:
             print("✅ Running backup.py for daily export...")
             try:
                 process = await asyncio.create_subprocess_exec(
