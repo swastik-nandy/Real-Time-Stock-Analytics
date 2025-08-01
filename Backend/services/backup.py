@@ -6,7 +6,7 @@ import os
 import subprocess
 from datetime import datetime
 
-#--------------------CONFIG--------------------
+# -------------------- CONFIG --------------------
 
 raw_url = os.environ.get("DATABASE_URL")
 if raw_url and raw_url.startswith("postgresql+asyncpg://"):
@@ -21,7 +21,7 @@ COMMIT_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 REPO = os.environ.get("GITHUB_REPO")  # e.g., "username/repo"
 
-#--------------------EXPORT FUNCTION--------------------
+# -------------------- EXPORT FUNCTION --------------------
 
 async def export_stock_price_history():
     try:
@@ -42,27 +42,42 @@ async def export_stock_price_history():
         print(f"❌ Export failed: {e}")
         return False
 
-#--------------------GIT COMMIT & PUSH--------------------
+# -------------------- GIT COMMIT & PUSH --------------------
 
 def commit_and_push():
     try:
         os.chdir(GIT_REPO_DIR)
-        subprocess.run(["git", "checkout", BRANCH_NAME], check=True)
-        subprocess.run(["git", "pull", "origin", BRANCH_NAME], check=True)
+
+        # Ensure we are in a git repo
+        try:
+            subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], check=True)
+        except subprocess.CalledProcessError:
+            print("❌ Not a Git repo. Skipping backup push.")
+            return
+
+        # Try checking out the branch; create it if missing
+        result = subprocess.run(["git", "checkout", BRANCH_NAME])
+        if result.returncode != 0:
+            print(f"⚠️ Branch '{BRANCH_NAME}' not found. Creating it...")
+            subprocess.run(["git", "checkout", "-b", BRANCH_NAME], check=True)
+
+        subprocess.run(["git", "pull", "origin", BRANCH_NAME], check=False)
 
         subprocess.run(["git", "add", str(CSV_PATH)], check=True)
         subprocess.run(["git", "commit", "-m", f"📊 Daily backup: {COMMIT_TIME}"], check=False)
+
         subprocess.run([
             "git", "push",
             f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO}.git",
             f"HEAD:{BRANCH_NAME}"
         ], check=True)
+
         print("✅ Backup pushed to GitHub.")
 
     except subprocess.CalledProcessError as e:
         print(f"❌ Git push failed: {e}")
 
-#--------------------MAIN--------------------
+# -------------------- MAIN --------------------
 
 if __name__ == "__main__":
     success = asyncio.run(export_stock_price_history())
