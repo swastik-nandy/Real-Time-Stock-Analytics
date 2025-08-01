@@ -10,7 +10,7 @@ from SyncRedis import initialize_redis_symbols, sync_symbols_to_redis
 from cleaner import run_cleanup
 from fetcher import run_fetcher
 
-# ---------------------------- ENV SETUP ----------------------------
+#--------------------ENV--------------------
 
 if not os.environ.get("ENV"):
     load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -19,28 +19,30 @@ REDIS_URL = os.environ.get("REDIS_URL")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 DSN = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
-# ---------------------- POSTGRES LISTENER -------------------------
+#--------------------POSTGRES LISTENER--------------------
 
 async def on_stock_change(conn, pid, channel, payload):
-    print("\n📣 Detected change in 'stocks' table.")
-    print("🔁 Syncing Redis with updated symbols...")
+    print("\n✅ Detected change in 'stocks' table. Syncing Redis...")
     await sync_symbols_to_redis()
 
 async def listen_to_stock_changes():
     try:
         conn = await asyncpg.connect(DSN)
         await conn.add_listener("stock_changed", on_stock_change)
-        print("👂 Listening to 'stock_changed' notifications from Postgres...")
+        print("✅ Listening to 'stock_changed' notifications from Postgres")
         while True:
             await asyncio.sleep(3600)
     except Exception as e:
         print(f"❌ LISTEN failed: {e}")
 
-# ------------------------ TIME TRIGGERS ----------------------------
+#--------------------FLAGS--------------------
 
 fetcher_running = False
 cleanup_stock_done = False
 cleanup_predicted_done = False
+backup_done = False
+
+#--------------------HELPERS--------------------
 
 async def table_not_empty(conn, table: str) -> bool:
     try:
@@ -50,8 +52,10 @@ async def table_not_empty(conn, table: str) -> bool:
         print(f"❌ Failed to check {table}: {e}")
         return False
 
+#--------------------TIME TRIGGERS--------------------
+
 async def time_based_trigger():
-    global fetcher_running, cleanup_stock_done, cleanup_predicted_done
+    global fetcher_running, cleanup_stock_done, cleanup_predicted_done, backup_done
 
     pg_pool = await asyncpg.create_pool(DSN)
 
@@ -59,56 +63,81 @@ async def time_based_trigger():
         now = datetime.utcnow()
         current_time = now.time()
 
-        # ------------------- CLEANUP stock_price_history -------------------
+#--------------------BACKUP (00:00 UTC)-----------------------------------
 
+        if time(4, 12) <= current_time < time(4, 18) and not backup_done:
+            print("✅ Running backup.py for daily export...")
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable, "backup.py",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+
+                if process.returncode == 0:
+                    print("✅ Backup completed successfully")
+                    print(stdout.decode().strip())
+                else:
+                    print("❌ Backup failed")
+                    print(stderr.decode().strip())
+            except Exception as e:
+                print(f"❌ Exception while running backup.py: {e}")
+            backup_done = True
+
+        if current_time >= time(0, 5):
+            backup_done = False  # Reset flag
+
+#--------------------CLEANUP stock_price_history (00:05 UTC)--------------------
+        
         if time(0, 5) <= current_time < time(0, 30) and not cleanup_stock_done:
             async with pg_pool.acquire() as conn:
                 not_empty = await table_not_empty(conn, "stock_price_history")
                 if not_empty:
-                    print("🧹 Running cleanup for stock_price_history")
+                    print("✅ Running cleanup for stock_price_history")
                     await run_cleanup()
                 else:
-                    print("✅ stock_price_history already empty — skipping cleanup")
+                    print("✅ stock_price_history already empty — skipping")
             cleanup_stock_done = True
 
         if current_time >= time(0, 30):
-            cleanup_stock_done = False  # Reset flag after window ends
+            cleanup_stock_done = False  # Reset flag
 
-        # ------------------- CLEANUP predicted_prices (exactly at 23:00 UTC) -------------------
-
+#--------------------CLEANUP predicted_prices (23:00 UTC)--------------------
+        
         if current_time >= time(23, 0) and not cleanup_predicted_done:
             async with pg_pool.acquire() as conn:
                 not_empty = await table_not_empty(conn, "predicted_prices")
                 if not_empty:
-                    print("🧹 Running cleanup for predicted_prices")
+                    print("✅ Running cleanup for predicted_prices")
                     await run_cleanup()
                 else:
-                    print("✅ predicted_prices already empty — skipping cleanup")
+                    print("✅ predicted_prices already empty — skipping")
             cleanup_predicted_done = True
 
         if current_time < time(23, 0):
-            cleanup_predicted_done = False  # Reset flag before 23:00 window
+            cleanup_predicted_done = False  # Reset flag
 
-        # ------------------- FETCHER KICK  -------------------
-
+#--------------------FETCHER TRIGGER (00:32 - 23:59:50 UTC)--------------------
+        
         if time(0, 32) <= current_time <= time(23, 59, 50) and not fetcher_running:
-            print(f"\n🚀 Starting fetcher at {current_time}")
+            print(f"✅ Starting fetcher at {current_time}")
             asyncio.create_task(run_fetcher())
             fetcher_running = True
 
         if current_time >= time(23, 59, 50):
-            fetcher_running = False  # Reset flag after window
+            fetcher_running = False  # Reset flag
 
         await asyncio.sleep(30)
 
-# ------------------------ MAIN ENTRY ------------------------------
+#--------------------MAIN ENTRY--------------------
 
 async def main():
-    print("🚀 Trigger Controller Started")
+    print("✅ Trigger Controller Started")
     redis = Redis.from_url(REDIS_URL, decode_responses=True)
 
     await redis.ping()
-    print("[Redis] Connected")
+    print("✅ Redis connected")
 
     await initialize_redis_symbols()
 
