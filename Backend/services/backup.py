@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime
 import shutil
 
-# -------------------- CONFIG --------------------
+# -------------------- CONFIG ---------------------
 
 raw_url = os.environ.get("DATABASE_URL")
 if raw_url and raw_url.startswith("postgresql+asyncpg://"):
