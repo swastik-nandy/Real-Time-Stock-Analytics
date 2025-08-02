@@ -65,9 +65,9 @@ async def time_based_trigger():
         current_time = now.time()
         today = now.date()
 
-#--------------------BACKUP (0:00)--------------------
+#--------------------BACKUP--------------------
 
-        if time(0, 0) <= current_time < time(0, 5):
+        if time(5, 0) <= current_time < time(5, 2):
             if last_backup_day != today:
                 print("✅ Running backup.py for daily export...")
                 try:
@@ -90,7 +90,7 @@ async def time_based_trigger():
 
 #--------------------CLEANUP stock_price_history (00:05 UTC)--------------------
 
-        if time(0, 5) <= current_time < time(0, 30) and not cleanup_stock_done:
+        if time(5, 2) < current_time < time(5, 5) and not cleanup_stock_done:
             async with pg_pool.acquire() as conn:
                 not_empty = await table_not_empty(conn, "stock_price_history")
                 if not_empty:
@@ -100,10 +100,10 @@ async def time_based_trigger():
                     print("✅ stock_price_history already empty — skipping")
             cleanup_stock_done = True
 
-        if current_time >= time(0, 30):
+        if current_time >= time(5, 5):
             cleanup_stock_done = False  # Reset flag
 
-#--------------------CLEANUP predicted_prices (23:00 UTC)--------------------
+#--------------------CLEANUP predicted_prices --------------------------------------------------
 
         if current_time >= time(23, 0) and not cleanup_predicted_done:
             async with pg_pool.acquire() as conn:
@@ -118,14 +118,15 @@ async def time_based_trigger():
         if current_time < time(23, 0):
             cleanup_predicted_done = False  # Reset flag
 
-#--------------------FETCHER TRIGGER (00:32 - 23:59:50 UTC)--------------------
+#--------------------FETCHER TRIGGER-------------------------------------------------------
 
-        if time(0, 32) <= current_time <= time(23, 55) and not fetcher_running:
+        if (current_time <= time(5, 0) or current_time >= time(5, 5)) and not fetcher_running:
             print(f"✅ Starting fetcher at {current_time}")
             asyncio.create_task(run_fetcher())
             fetcher_running = True
 
-        if time(23, 55) <= current_time < time(23,59,59):
+        if time(5, 0) <= current_time <= time(5,5):
+
             fetcher_running = False  # Reset flag
 
         await asyncio.sleep(30)
