@@ -120,12 +120,12 @@ async def time_based_trigger():
 
 #--------------------FETCHER TRIGGER (00:32 - 23:59:50 UTC)--------------------
 
-        if time(0, 32) <= current_time <= time(23, 59, 50) and not fetcher_running:
+        if time(0, 32) <= current_time <= time(23, 55) and not fetcher_running:
             print(f"✅ Starting fetcher at {current_time}")
             asyncio.create_task(run_fetcher())
             fetcher_running = True
 
-        if current_time >= time(23, 59, 50):
+        if time(23, 55) <= current_time < time(23,59,59):
             fetcher_running = False  # Reset flag
 
         await asyncio.sleep(30)

@@ -86,7 +86,7 @@ async def run_fetcher():
     pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
 
     start_time = time(0, 32)
-    end_time = time(23, 59, 50)
+    end_time = time(23, 55)
 
     while True:
         now = datetime.utcnow()
